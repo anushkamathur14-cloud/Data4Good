@@ -11,6 +11,7 @@ This project implements a comprehensive machine learning solution to detect fact
 ├── data/
 │   ├── train.json          # Training data (21,021 examples)
 │   └── test.json           # Test data (2,000 examples) - predictions will be saved here
+├── Data4Good_Case_Challenge_Colab.ipynb  # Colab notebook (competition submission)
 ├── eda_and_ml_pipeline.ipynb  # Main Jupyter notebook with EDA and ML pipeline
 ├── requirements.txt        # Python dependencies
 └── README.md              # This file
