@@ -16,13 +16,15 @@ from llm_judge import judge as llm_judge_classify
 st.set_page_config(
     page_title="Factuality Detection Demo",
     page_icon="📚",
-    layout="centered"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # Custom styling
 st.markdown("""
 <style>
-    .stApp { max-width: 800px; margin: 0 auto; }
+    .stApp { max-width: 1100px; margin: 0 auto; }
+    [data-testid="stVerticalBlock"] > div { gap: 0.5rem; }
     h1 { color: #1e3a5f; font-family: 'Georgia', serif; }
     .pred-factual { color: #0d6b0d; font-weight: bold; }
     .pred-contradiction { color: #b91c1c; font-weight: bold; }
@@ -150,9 +152,9 @@ except FileNotFoundError:
 
 # Demo inputs
 st.subheader("Try it yourself")
-st.markdown("Enter a **Question** and **Context** (reference material). We’ll generate an answer with an LLM, then classify it.")
+st.markdown("Enter a **Question** and **Context** below, or load a sample.")
 
-with st.expander("Add your OpenAI API key to try the LLM", expanded=False):
+with st.expander("🔑 OpenAI API key (for LLM features)", expanded=False):
     st.caption("Optional. Your key is stored only in this session and never sent anywhere except OpenAI. [Get a key](https://platform.openai.com/api-keys)")
     user_key = st.text_input(
         "OpenAI API key",
@@ -171,7 +173,7 @@ if "preset" not in st.session_state:
     st.session_state.preset = {"question": "", "context": "", "answer": ""}
 
 preset_examples = load_preset_examples()
-if st.button("Load random preset from training data"):
+if st.button("📋 Load sample"):
     ex = random.choice(preset_examples)
     st.session_state.preset = {
         "question": ex.get("question", ""),
@@ -181,35 +183,43 @@ if st.button("Load random preset from training data"):
     st.rerun()
 
 with st.form("prediction_form"):
-    question = st.text_area(
-        "Question",
-        value=st.session_state.preset["question"],
-        placeholder="e.g., What is the capital of France?",
-        height=80
-    )
-    context = st.text_area(
-        "Context (reference material)",
-        value=st.session_state.preset["context"],
-        placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
-        height=100
-    )
-    use_llm = st.checkbox("Use LLM to generate answer (enter your API key above)", value=True)
-    classifier = st.radio(
-        "Classifier",
-        ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
-        horizontal=True,
-        help="Ensemble: trained RF/XGB/LR. LLM-as-Judge: 2-step reasoning prompt (requires API key).",
-    )
+    col_q, col_c = st.columns(2)
+    with col_q:
+        question = st.text_area(
+            "Question",
+            value=st.session_state.preset["question"],
+            placeholder="e.g., What is the capital of France?",
+            height=280,
+            help="The question to evaluate."
+        )
+    with col_c:
+        context = st.text_area(
+            "Context (reference)",
+            value=st.session_state.preset["context"],
+            placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
+            height=280,
+            help="Reference material the answer should be based on."
+        )
+    st.markdown("")  # spacer
+    opts_col1, opts_col2, opts_col3 = st.columns([1, 2, 1])
+    with opts_col2:
+        use_llm = st.checkbox("🤖 Generate answer with LLM (needs API key above)", value=True)
+        classifier = st.radio(
+            "Classifier",
+            ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
+            horizontal=True,
+            help="Ensemble: fast, local. LLM-as-Judge: uses OpenAI for classification.",
+        )
     if not use_llm:
         answer = st.text_area(
-            "Answer (if not using LLM)",
+            "Answer (enter manually if not using LLM)",
             value=st.session_state.preset.get("answer", ""),
             placeholder="e.g., Paris is the capital of France.",
-            height=100
+            height=120
         )
     else:
         answer = None
-    submitted = st.form_submit_button("Generate & Classify")
+    submitted = st.form_submit_button("▶ Generate & Classify")
 
 if submitted:
     if not (question and context):
