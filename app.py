@@ -227,6 +227,7 @@ if st.button("📋 Load sample"):
     st.session_state.generated_answer = ex.get("answer", "")
     st.session_state.generated_q = ex.get("question", "")
     st.session_state.generated_c = ex.get("context", "")
+    st.session_state.just_loaded_sample = True
     st.rerun()
 
 with st.form("prediction_form"):
@@ -262,8 +263,11 @@ if submitted_gen:
             st.session_state.generated_answer = answer
             st.session_state.generated_q = question
             st.session_state.generated_c = context
+            st.success("✓ **New answer generated** and ready for classification.")
 
-# Show answer (editable) and classifier choice (only after we have an answer)
+if st.session_state.get("just_loaded_sample"):
+    st.success("✓ **Sample loaded** — question, context, and answer ready.")
+    st.session_state.just_loaded_sample = False
 if "generated_answer" in st.session_state and st.session_state.generated_answer:
     st.markdown("**Answer** — *you can edit before classifying*")
     answer_edited = st.text_area(
@@ -274,6 +278,7 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
         label_visibility="collapsed",
     )
     st.session_state.generated_answer = answer_edited  # keep in sync
+    st.caption(f"✓ **Answer captured** ({len(answer_edited)} chars) — ready for classification")
     st.markdown("**Choose classifier** — *run both to verify they work*")
     classifier = st.radio(
         "Classifier",
@@ -319,6 +324,11 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
                                 results.append((clf, None, None, "Invalid API key. Add your OpenAI key in the expander above."))
                             else:
                                 results.append((clf, None, None, str(e)))
+                ok_count = sum(1 for r in results if r[1] is not None)
+                if ok_count == 2:
+                    st.success("✓ **Both models ran** — Ensemble and LLM-as-Judge classified successfully.")
+                elif ok_count == 1:
+                    st.warning("One model ran; the other had an error. See results below.")
                 bc1, bc2 = st.columns(2)
                 with bc1:
                     clf, pred, proba, err = results[0]
