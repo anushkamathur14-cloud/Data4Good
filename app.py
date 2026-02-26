@@ -233,7 +233,7 @@ except FileNotFoundError:
 
 # Demo inputs
 st.subheader("Try it yourself")
-st.markdown("Enter a **Question** and **Context** below, or load a sample.")
+st.markdown("Load a sample or generate an answer with the LLM. Then choose Ensemble or LLM-as-Judge to classify the **same** answer.")
 
 with st.expander("🔑 OpenAI API key (for LLM features)", expanded=False):
     st.caption("Optional. Your key is stored only in this session and never sent anywhere except OpenAI. [Get a key](https://platform.openai.com/api-keys)")
@@ -261,6 +261,9 @@ if st.button("📋 Load sample"):
         "context": ex.get("context", ""),
         "answer": ex.get("answer", ""),
     }
+    st.session_state.generated_answer = ex.get("answer", "")
+    st.session_state.generated_q = ex.get("question", "")
+    st.session_state.generated_c = ex.get("context", "")
     st.rerun()
 
 with st.form("prediction_form"):
@@ -282,59 +285,48 @@ with st.form("prediction_form"):
             help="Reference material the answer should be based on."
         )
     st.markdown("")  # spacer
-    opts_col1, opts_col2, opts_col3 = st.columns([1, 2, 1])
-    with opts_col2:
-        use_llm = st.checkbox("🤖 Generate answer with LLM (needs API key above)", value=True)
-        classifier = st.radio(
-            "Classifier",
-            ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
-            horizontal=True,
-            help="Ensemble: fast, local. LLM-as-Judge: uses OpenAI for classification.",
-        )
-    if not use_llm:
-        answer = st.text_area(
-            "Answer (enter manually if not using LLM)",
-            value=st.session_state.preset.get("answer", ""),
-            placeholder="e.g., Paris is the capital of France.",
-            height=200
-        )
-    else:
-        answer = None
-    submitted = st.form_submit_button("▶ Generate & Classify")
+    submitted_gen = st.form_submit_button("▶ Generate answer")
 
-if submitted:
+if submitted_gen:
     if not (question and context):
         st.warning("Please fill in Question and Context.")
-    elif use_llm:
+    else:
         with st.spinner("Generating answer with LLM..."):
             answer = generate_answer_with_llm(question, context)
         if answer is None:
-            st.warning("Enter your OpenAI API key in the expander above to use the LLM, or uncheck 'Use LLM' and enter an answer manually.")
+            st.warning("Enter your OpenAI API key in the expander above to generate an answer.")
         else:
-            st.markdown("**Generated answer:**")
-            st.info(answer)
-            try:
-                with st.spinner("Classifying..."):
-                    pred, proba = _classify(question, context, answer, classifier, pipeline)
-                _track_result(pred, classifier)
-                _show_result(pred, proba, classifier)
-            except ValueError as e:
-                st.warning(str(e))
-            except Exception as e:
-                _show_friendly_error(e)
-    else:
-        if not answer:
-            st.warning("Please enter an answer.")
-        else:
-            try:
-                with st.spinner("Classifying..."):
-                    pred, proba = _classify(question, context, answer, classifier, pipeline)
-                _track_result(pred, classifier)
-                _show_result(pred, proba, classifier)
-            except ValueError as e:
-                st.warning(str(e))
-            except Exception as e:
-                _show_friendly_error(e)
+            st.session_state.generated_answer = answer
+            st.session_state.generated_q = question
+            st.session_state.generated_c = context
+
+# Show generated answer and classifier choice (only after we have an answer)
+if "generated_answer" in st.session_state and st.session_state.generated_answer:
+    st.markdown("**Generated answer:**")
+    st.info(st.session_state.generated_answer)
+    st.markdown("")
+    st.markdown("**Choose classifier** — *same answer, different model*")
+    classifier = st.radio(
+        "Classifier",
+        ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
+        horizontal=True,
+        key="classifier_choice",
+        help="Run this answer through Ensemble or LLM-as-Judge.",
+    )
+    if st.button("Classify with chosen model"):
+        q = st.session_state.generated_q
+        c = st.session_state.generated_c
+        a = st.session_state.generated_answer
+        try:
+            with st.spinner("Classifying..."):
+                pred, proba = _classify(q, c, a, classifier, pipeline)
+            _track_result(pred, classifier)
+            _show_result(pred, proba, classifier)
+        except ValueError as e:
+            st.warning(str(e))
+        except Exception as e:
+            _show_friendly_error(e)
+
 
 st.markdown("---")
 st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
