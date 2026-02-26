@@ -196,7 +196,7 @@ def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: 
 
 # Demo inputs
 st.subheader("Try it yourself")
-st.markdown("Load a sample or generate an answer with the LLM. Then choose Ensemble or LLM-as-Judge to classify the **same** answer.")
+st.markdown("1) Load a sample, or enter Question & Context. 2) Get an answer (generate with LLM or enter manually). 3) Capture it, then classify.")
 
 with st.expander("🔑 OpenAI API key (for LLM features)", expanded=False):
     st.caption("Optional. Your key is stored only in this session and never sent anywhere except OpenAI. [Get a key](https://platform.openai.com/api-keys)")
@@ -248,8 +248,20 @@ with st.form("prediction_form"):
             height=280,
             help="Reference material the answer should be based on."
         )
-    st.markdown("")  # spacer
-    submitted_gen = st.form_submit_button("▶ Generate answer")
+    st.markdown("**Answer** — *generate with LLM or enter manually*")
+    manual_answer = st.text_area(
+        "Manual answer",
+        value="",
+        height=120,
+        placeholder="Type your answer here, then click Capture answer...",
+        key="manual_answer_input",
+        label_visibility="collapsed",
+    )
+    btn_gen, btn_capture = st.columns(2)
+    with btn_gen:
+        submitted_gen = st.form_submit_button("▶ Generate with LLM")
+    with btn_capture:
+        submitted_manual = st.form_submit_button("✓ Capture answer (use manual)")
 
 if submitted_gen:
     if not (question and context):
@@ -264,6 +276,18 @@ if submitted_gen:
             st.session_state.generated_q = question
             st.session_state.generated_c = context
             st.success("✓ **New answer generated** and ready for classification.")
+
+if submitted_manual:
+    if not (question and context):
+        st.warning("Please fill in Question and Context first.")
+    elif not manual_answer.strip():
+        st.warning("Enter an answer manually, or generate with LLM.")
+    else:
+        st.session_state.generated_answer = manual_answer.strip()
+        st.session_state.generated_q = question
+        st.session_state.generated_c = context
+        st.session_state.just_loaded_sample = False
+        st.success("✓ **Answer captured** — ready for classification.")
 
 if st.session_state.get("just_loaded_sample"):
     st.success("✓ **Sample loaded** — question, context, and answer ready.")
