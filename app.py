@@ -196,9 +196,9 @@ def _classify(question: str, context: str, answer: str, classifier: str, pipelin
     return predict(pipeline, question, context, answer)
 
 
-def _show_result(pred: str, proba: Optional[dict], classifier: str = ""):
+def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: str = "Classification"):
     st.markdown("---")
-    st.subheader("Classification")
+    st.subheader(title)
     pred_lower = pred.lower()
     if "factual" in pred_lower:
         st.markdown(f'**Result:** <span class="pred-factual">✓ {pred}</span>', unsafe_allow_html=True)
@@ -300,12 +300,18 @@ if submitted_gen:
             st.session_state.generated_q = question
             st.session_state.generated_c = context
 
-# Show generated answer and classifier choice (only after we have an answer)
+# Show answer (editable) and classifier choice (only after we have an answer)
 if "generated_answer" in st.session_state and st.session_state.generated_answer:
-    st.markdown("**Generated answer:**")
-    st.info(st.session_state.generated_answer)
-    st.markdown("")
-    st.markdown("**Choose classifier** — *same answer, different model*")
+    st.markdown("**Answer** — *you can edit before classifying*")
+    answer_edited = st.text_area(
+        "Answer",
+        value=st.session_state.generated_answer,
+        height=150,
+        key="answer_edit",
+        label_visibility="collapsed",
+    )
+    st.session_state.generated_answer = answer_edited  # keep in sync
+    st.markdown("**Choose classifier** — *run both to verify they work*")
     classifier = st.radio(
         "Classifier",
         ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
@@ -313,10 +319,12 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
         key="classifier_choice",
         help="Run this answer through Ensemble or LLM-as-Judge.",
     )
-    if st.button("Classify with chosen model"):
+    run_one = st.button("Classify with chosen model")
+    run_both = st.button("Run both classifiers (verify both work)")
+    if run_one:
         q = st.session_state.generated_q
         c = st.session_state.generated_c
-        a = st.session_state.generated_answer
+        a = answer_edited
         try:
             with st.spinner("Classifying..."):
                 pred, proba = _classify(q, c, a, classifier, pipeline)
@@ -326,6 +334,21 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
             st.warning(str(e))
         except Exception as e:
             _show_friendly_error(e)
+    elif run_both:
+        q = st.session_state.generated_q
+        c = st.session_state.generated_c
+        a = answer_edited
+        for clf in ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"]:
+            try:
+                with st.spinner(f"Running {clf}..."):
+                    pred, proba = _classify(q, c, a, clf, pipeline)
+                _track_result(pred, clf)
+                _show_result(pred, proba, clf, title=clf)
+                st.markdown("")
+            except ValueError as e:
+                st.warning(f"{clf}: {e}")
+            except Exception as e:
+                _show_friendly_error(e)
 
 
 st.markdown("---")
