@@ -11,6 +11,7 @@ import random
 import pandas as pd
 from typing import Optional
 from model_pipeline import train_model, predict
+from llm_judge import judge as llm_judge_classify
 
 st.set_page_config(
     page_title="Factuality Detection Demo",
@@ -37,17 +38,25 @@ st.markdown("**Classifying AI-Generated Educational Content** — *Data4Good Com
 st.markdown("### How it works")
 st.markdown("""
 <div class="overview-box">
-<strong>What the LLM Judge (Ensemble Model) does</strong><br><br>
-We combine an <b>LLM</b> to generate answers with an <b>ensemble classifier</b> to judge them. 
-You enter a <b>question</b> and <b>context</b> (reference material). An LLM produces an answer. 
-The ensemble then classifies whether that answer is:
-<ul>
-  <li><b>Factual</b> — accurate and relevant to the context</li>
-  <li><b>Contradiction</b> — incorrect or conflicts with the context</li>
-  <li><b>Irrelevant</b> — does not address the question</li>
-</ul>
-The ensemble uses Random Forest, XGBoost, and Logistic Regression with features like semantic similarity, 
-word overlap, and text structure — trained on 20k+ examples.
+<style>
+.flowchart { font-family: system-ui, sans-serif; }
+.flow-step { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.flow-box { padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; }
+.flow-input { background: #e0f2fe; border: 2px solid #0ea5e9; }
+.flow-llm { background: #fef3c7; border: 2px solid #f59e0b; }
+.flow-clf { background: #d1fae5; border: 2px solid #10b981; }
+.flow-out { padding: 6px 12px; border-radius: 6px; margin: 0 4px; font-size: 0.85rem; display: inline-block; }
+.flow-factual { background: #dcfce7; color: #166534; }
+.flow-contra { background: #fee2e2; color: #991b1b; }
+.flow-irrel { background: #ffedd5; color: #9a3412; }
+.flow-arrow { color: #64748b; font-size: 1.1rem; }
+</style>
+<div class="flowchart">
+<div class="flow-step"><span class="flow-box flow-input">📝 Question</span> + <span class="flow-box flow-input">📄 Context</span></div>
+<div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-box flow-llm">🤖 LLM generates Answer</span> <small>(optional)</small></div>
+<div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-box flow-clf">⚖️ Classifier</span> (Ensemble or LLM-as-Judge)</div>
+<div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-out flow-factual">✓ Factual</span> <span class="flow-out flow-contra">✗ Contradiction</span> <span class="flow-out flow-irrel">◇ Irrelevant</span></div>
+</div>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
@@ -63,14 +72,14 @@ def load_model():
         pipeline = train_model(train_df, sample_size=5000)
     return pipeline
 
-def generate_answer_with_llm(question: str, context: str) -> Optional[str]:
+def generate_answer_with_llm(question: str, context: str, api_key: Optional[str] = None) -> Optional[str]:
     """Use an LLM to generate an answer given question and context."""
-    api_key = os.environ.get("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", "")
-    if not api_key:
+    key = api_key or st.session_state.get("openai_api_key", "") or os.environ.get("OPENAI_API_KEY") or (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "")
+    if not key:
         return None
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key=key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -93,7 +102,25 @@ def load_preset_examples(n: int = 200):
     df.columns = [c.lower() for c in df.columns]
     return df.sample(n=min(n, len(df)), random_state=42).to_dict("records")
 
-def _show_result(pred: str, proba: dict):
+def _get_api_key() -> str:
+    return (
+        st.session_state.get("openai_api_key", "")
+        or os.environ.get("OPENAI_API_KEY", "")
+        or (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "")
+    )
+
+
+def _classify(question: str, context: str, answer: str, classifier: str, pipeline):
+    """Dispatch to Ensemble or LLM-as-Judge."""
+    if "LLM-as-Judge" in classifier:
+        api_key = _get_api_key()
+        if not api_key:
+            raise ValueError("API key required for LLM-as-Judge. Enter it in the expander above.")
+        return llm_judge_classify(question, context, answer, api_key)
+    return predict(pipeline, question, context, answer)
+
+
+def _show_result(pred: str, proba: Optional[dict]):
     st.markdown("---")
     st.subheader("Classification")
     pred_lower = pred.lower()
@@ -103,11 +130,12 @@ def _show_result(pred: str, proba: dict):
         st.markdown(f'**Result:** <span class="pred-contradiction">✗ {pred}</span>', unsafe_allow_html=True)
     else:
         st.markdown(f'**Result:** <span class="pred-irrelevant">◇ {pred}</span>', unsafe_allow_html=True)
-    st.markdown("**Confidence:**")
-    for label, p in proba.items():
-        pct = p * 100
-        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-        st.markdown(f"  {label}: {bar} {pct:.1f}%")
+    if proba:
+        st.markdown("**Confidence:**")
+        for label, p in proba.items():
+            pct = p * 100
+            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            st.markdown(f"  {label}: {bar} {pct:.1f}%")
 
 try:
     pipeline = load_model()
@@ -118,6 +146,21 @@ except FileNotFoundError:
 # Demo inputs
 st.subheader("Try it yourself")
 st.markdown("Enter a **Question** and **Context** (reference material). We’ll generate an answer with an LLM, then classify it.")
+
+with st.expander("Add your OpenAI API key to try the LLM", expanded=False):
+    st.caption("Optional. Your key is stored only in this session and never sent anywhere except OpenAI. [Get a key](https://platform.openai.com/api-keys)")
+    user_key = st.text_input(
+        "OpenAI API key",
+        type="password",
+        placeholder="sk-...",
+        key="openai_api_key_input",
+        label_visibility="collapsed"
+    )
+    if user_key:
+        st.session_state.openai_api_key = user_key.strip()
+        st.success("Key saved for this session.")
+    else:
+        st.session_state.openai_api_key = ""
 
 if "preset" not in st.session_state:
     st.session_state.preset = {"question": "", "context": "", "answer": ""}
@@ -145,7 +188,13 @@ with st.form("prediction_form"):
         placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
         height=100
     )
-    use_llm = st.checkbox("Use LLM to generate answer (requires OPENAI_API_KEY)", value=True)
+    use_llm = st.checkbox("Use LLM to generate answer (enter your API key above)", value=True)
+    classifier = st.radio(
+        "Classifier",
+        ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
+        horizontal=True,
+        help="Ensemble: trained RF/XGB/LR. LLM-as-Judge: 2-step reasoning prompt (requires API key).",
+    )
     if not use_llm:
         answer = st.text_area(
             "Answer (if not using LLM)",
@@ -164,20 +213,30 @@ if submitted:
         with st.spinner("Generating answer with LLM..."):
             answer = generate_answer_with_llm(question, context)
         if answer is None:
-            st.warning("LLM not configured. Set OPENAI_API_KEY in env or Streamlit secrets, or uncheck 'Use LLM' and enter an answer manually.")
+            st.warning("Enter your OpenAI API key in the expander above to use the LLM, or uncheck 'Use LLM' and enter an answer manually.")
         else:
             st.markdown("**Generated answer:**")
             st.info(answer)
-            with st.spinner("Classifying..."):
-                pred, proba = predict(pipeline, question, context, answer)
-            _show_result(pred, proba)
+            try:
+                with st.spinner("Classifying..."):
+                    pred, proba = _classify(question, context, answer, classifier, pipeline)
+                _show_result(pred, proba)
+            except ValueError as e:
+                st.warning(str(e))
+            except Exception as e:
+                st.error(f"Classification error: {e}")
     else:
         if not answer:
             st.warning("Please enter an answer.")
         else:
-            with st.spinner("Classifying..."):
-                pred, proba = predict(pipeline, question, context, answer)
-            _show_result(pred, proba)
+            try:
+                with st.spinner("Classifying..."):
+                    pred, proba = _classify(question, context, answer, classifier, pipeline)
+                _show_result(pred, proba)
+            except ValueError as e:
+                st.warning(str(e))
+            except Exception as e:
+                st.error(f"Classification error: {e}")
 
 st.markdown("---")
 st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
