@@ -351,6 +351,9 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
                 ok_count = sum(1 for r in results if r[1] is not None)
                 if ok_count == 2:
                     st.success("✓ **Both models ran** — Ensemble and LLM-as-Judge classified successfully.")
+                    preview = (a[:80] + "…") if len(a) > 80 else a
+                    st.caption(f"Both classifiers used this answer ({len(a)} chars):")
+                    st.code(preview, language=None)
                 elif ok_count == 1:
                     st.warning("One model ran; the other had an error. See results below.")
                 bc1, bc2 = st.columns(2)

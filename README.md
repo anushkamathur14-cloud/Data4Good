@@ -156,6 +156,38 @@ See `requirements.txt` for full list. Key dependencies:
 - nltk
 - transformers, torch (for transformer models)
 
+## Deploy as a Demo
+
+### Option 1: Streamlit (Interactive Web App)
+
+Run the interactive factuality classifier locally:
+
+```bash
+pip install -r requirements-streamlit.txt
+streamlit run app.py
+```
+
+Or deploy to **[Streamlit Community Cloud](https://share.streamlit.io)** (free):
+1. Push this repo to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io) → New app
+3. Select your repo, set main file to `app.py`
+4. Add `requirements-streamlit.txt` as the requirements file (or use `requirements.txt`)
+
+### Option 2: Binder (Run Notebook in Browser)
+
+Click the badge to launch the notebook in an interactive environment:
+
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/anushkamathur14-cloud/Data4Good/HEAD)
+
+*Note: Binder may take 2–3 minutes to start. Select `Data4Good_Case_Challenge_Colab.ipynb` or `eda_and_ml_pipeline.ipynb` to run.*
+
+### Option 3: Hugging Face Spaces
+
+Deploy the Streamlit app on [Hugging Face Spaces](https://huggingface.co/spaces) (free):
+1. Create a new Space → choose "Streamlit"
+2. Add `app.py`, `model_pipeline.py`, and `requirements-streamlit.txt`
+3. Upload `data/train.json` (or add via Git LFS for larger files)
+
 ## Contact
 
 For questions or issues, please refer to the methodology discussion section in the notebook.
