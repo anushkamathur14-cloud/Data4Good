@@ -27,7 +27,7 @@ st.markdown("""
     .pred-factual { color: #0d6b0d; font-weight: bold; }
     .pred-contradiction { color: #b91c1c; font-weight: bold; }
     .pred-irrelevant { color: #b45309; font-weight: bold; }
-    .overview-box { background: #f8fafc; padding: 1rem 1.25rem; border-radius: 8px; margin: 1rem 0; font-size: 0.95rem; }
+    .overview-box { background: #f8fafc; padding: 1.5rem 1.5rem; border-radius: 8px; margin: 1rem 0; font-size: 1.05rem; line-height: 1.6; color: #1e293b; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,13 +39,13 @@ st.markdown("### How it works")
 st.markdown("""
 <div class="overview-box">
 <style>
-.flowchart { font-family: system-ui, sans-serif; }
-.flow-step { display: flex; align-items: center; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
-.flow-box { padding: 8px 14px; border-radius: 8px; font-weight: 600; font-size: 0.9rem; }
+.flowchart { font-family: system-ui, -apple-system, sans-serif; font-size: 1.05rem; }
+.flow-step { display: flex; align-items: center; gap: 8px; margin: 12px 0; flex-wrap: wrap; line-height: 1.5; }
+.flow-box { padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 1rem; }
 .flow-input { background: #e0f2fe; border: 2px solid #0ea5e9; }
 .flow-llm { background: #fef3c7; border: 2px solid #f59e0b; }
 .flow-clf { background: #d1fae5; border: 2px solid #10b981; }
-.flow-out { padding: 6px 12px; border-radius: 6px; margin: 0 4px; font-size: 0.85rem; display: inline-block; }
+.flow-out { padding: 8px 14px; border-radius: 6px; margin: 0 6px; font-size: 0.95rem; display: inline-block; font-weight: 600; }
 .flow-factual { background: #dcfce7; color: #166534; }
 .flow-contra { background: #fee2e2; color: #991b1b; }
 .flow-irrel { background: #ffedd5; color: #9a3412; }
@@ -53,7 +53,7 @@ st.markdown("""
 </style>
 <div class="flowchart">
 <div class="flow-step"><span class="flow-box flow-input">📝 Question</span> + <span class="flow-box flow-input">📄 Context</span></div>
-<div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-box flow-llm">🤖 LLM generates Answer</span> <small>(optional)</small></div>
+<div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-box flow-llm">🤖 LLM generates Answer</span> <span style="font-size: 0.95rem; color: #64748b;">(optional)</span></div>
 <div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-box flow-clf">⚖️ Classifier</span> (Ensemble or LLM-as-Judge)</div>
 <div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-out flow-factual">✓ Factual</span> <span class="flow-out flow-contra">✗ Contradiction</span> <span class="flow-out flow-irrel">◇ Irrelevant</span></div>
 </div>
