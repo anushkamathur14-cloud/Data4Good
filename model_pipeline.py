@@ -2,6 +2,8 @@
 Factuality detection model pipeline - extracted for Streamlit demo.
 Matches the pipeline in Data4Good_Case_Challenge_Colab.ipynb
 """
+import os
+import joblib
 import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -191,3 +193,16 @@ def predict(pipeline, question, context, answer):
     labels = pipeline['label_encoder'].classes_
     
     return pred[0], dict(zip(labels, proba.tolist()))
+
+
+def save_pipeline(pipeline, path="model_pipeline.joblib"):
+    """Save trained pipeline to disk."""
+    joblib.dump(pipeline, path)
+    return path
+
+
+def load_pipeline(path="model_pipeline.joblib"):
+    """Load pipeline from disk. Returns None if file not found."""
+    if os.path.exists(path):
+        return joblib.load(path)
+    return None

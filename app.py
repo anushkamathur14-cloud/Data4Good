@@ -10,7 +10,7 @@ import os
 import random
 import pandas as pd
 from typing import Optional
-from model_pipeline import train_model, predict
+from model_pipeline import train_model, predict, load_pipeline
 from llm_judge import judge as llm_judge_classify
 
 st.set_page_config(
@@ -61,10 +61,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 st.markdown("---")
 
-# Load and train model (cached)
+# Load model: use pre-trained file if present, else train (cached)
+MODEL_PATH = "model_pipeline.joblib"
+
 @st.cache_resource
 def load_model():
-    with st.spinner("Loading model (first run trains on sample data, ~30-60 sec)..."):
+    pipeline = load_pipeline(MODEL_PATH)
+    if pipeline is not None:
+        return pipeline
+    with st.spinner("Loading model (training on sample data, ~30-60 sec)..."):
         with open("data/train.json", "r") as f:
             train_data = json.load(f)
         train_df = pd.DataFrame(train_data)
