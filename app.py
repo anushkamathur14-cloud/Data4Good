@@ -61,37 +61,6 @@ def _tracker_pcts(tracker: dict) -> dict:
         return {"factual": 0, "contradiction": 0, "irrelevant": 0}
     return {k: round(100 * v / total, 1) for k, v in tracker.items()}
 
-# Display tracker
-st.markdown("**Session tracker** — *% by classifier*")
-tr_col1, tr_col2 = st.columns(2)
-with tr_col1:
-    e_total = sum(st.session_state.tracker_ensemble.values())
-    e_pct = _tracker_pcts(st.session_state.tracker_ensemble)
-    st.markdown("**Ensemble** (n={})".format(e_total))
-    if e_total > 0:
-        st.markdown("✓ Factual {:.1f}%".format(e_pct["factual"]))
-        st.progress(e_pct["factual"] / 100, text=None)
-        st.markdown("✗ Contradiction {:.1f}%".format(e_pct["contradiction"]))
-        st.progress(e_pct["contradiction"] / 100, text=None)
-        st.markdown("◇ Irrelevant {:.1f}%".format(e_pct["irrelevant"]))
-        st.progress(e_pct["irrelevant"] / 100, text=None)
-    else:
-        st.caption("No classifications yet")
-with tr_col2:
-    l_total = sum(st.session_state.tracker_llm.values())
-    l_pct = _tracker_pcts(st.session_state.tracker_llm)
-    st.markdown("**LLM-as-Judge** (n={})".format(l_total))
-    if l_total > 0:
-        st.markdown("✓ Factual {:.1f}%".format(l_pct["factual"]))
-        st.progress(l_pct["factual"] / 100, text=None)
-        st.markdown("✗ Contradiction {:.1f}%".format(l_pct["contradiction"]))
-        st.progress(l_pct["contradiction"] / 100, text=None)
-        st.markdown("◇ Irrelevant {:.1f}%".format(l_pct["irrelevant"]))
-        st.progress(l_pct["irrelevant"] / 100, text=None)
-    else:
-        st.caption("No classifications yet")
-st.markdown("---")
-
 # Overview of the LLM Judge / Ensemble Model
 st.markdown("### How it works")
 st.markdown("""
@@ -225,12 +194,6 @@ def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: 
             st.markdown("**Note**")
             st.info(f"Classification: **{pred}** (LLM single-label)")
 
-try:
-    pipeline = load_model()
-except FileNotFoundError:
-    st.error("Training data not found. Please ensure `data/train.json` exists.")
-    st.stop()
-
 # Demo inputs
 st.subheader("Try it yourself")
 st.markdown("Load a sample or generate an answer with the LLM. Then choose Ensemble or LLM-as-Judge to classify the **same** answer.")
@@ -321,35 +284,84 @@ if "generated_answer" in st.session_state and st.session_state.generated_answer:
     )
     run_one = st.button("Classify with chosen model")
     run_both = st.button("Run both classifiers (verify both work)")
-    if run_one:
-        q = st.session_state.generated_q
-        c = st.session_state.generated_c
-        a = answer_edited
+    if run_one or run_both:
         try:
-            with st.spinner("Classifying..."):
-                pred, proba = _classify(q, c, a, classifier, pipeline)
-            _track_result(pred, classifier)
-            _show_result(pred, proba, classifier)
-        except ValueError as e:
-            st.warning(str(e))
-        except Exception as e:
-            _show_friendly_error(e)
-    elif run_both:
-        q = st.session_state.generated_q
-        c = st.session_state.generated_c
-        a = answer_edited
-        for clf in ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"]:
-            try:
-                with st.spinner(f"Running {clf}..."):
-                    pred, proba = _classify(q, c, a, clf, pipeline)
-                _track_result(pred, clf)
-                _show_result(pred, proba, clf, title=clf)
-                st.markdown("")
-            except ValueError as e:
-                st.warning(f"{clf}: {e}")
-            except Exception as e:
-                _show_friendly_error(e)
+            pipeline = load_model()
+        except FileNotFoundError:
+            st.error("Training data not found. Please ensure `data/train.json` exists.")
+        else:
+            q = st.session_state.generated_q
+            c = st.session_state.generated_c
+            a = answer_edited
+            if run_one:
+                try:
+                    with st.spinner("Classifying..."):
+                        pred, proba = _classify(q, c, a, classifier, pipeline)
+                    _track_result(pred, classifier)
+                    _show_result(pred, proba, classifier)
+                except ValueError as e:
+                    st.warning(str(e))
+                except Exception as e:
+                    _show_friendly_error(e)
+            elif run_both:
+                results = []
+                with st.spinner("Running both classifiers..."):
+                    for clf in ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"]:
+                        try:
+                            pred, proba = _classify(q, c, a, clf, pipeline)
+                            _track_result(pred, clf)
+                            results.append((clf, pred, proba, None))
+                        except ValueError as e:
+                            results.append((clf, None, None, str(e)))
+                        except Exception as e:
+                            err = str(e).lower()
+                            if "401" in err or "invalid_api_key" in err or "incorrect api key" in err:
+                                results.append((clf, None, None, "Invalid API key. Add your OpenAI key in the expander above."))
+                            else:
+                                results.append((clf, None, None, str(e)))
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    clf, pred, proba, err = results[0]
+                    if err:
+                        st.warning(f"**{clf}:** {err}")
+                    elif pred is not None:
+                        _show_result(pred, proba, clf, title=clf)
+                with bc2:
+                    clf, pred, proba, err = results[1]
+                    if err:
+                        st.warning(f"**{clf}:** {err}")
+                    elif pred is not None:
+                        _show_result(pred, proba, clf, title=clf)
 
+st.markdown("---")
+st.markdown("**Session tracker** — *% by classifier*")
+tr_col1, tr_col2 = st.columns(2)
+with tr_col1:
+    e_total = sum(st.session_state.tracker_ensemble.values())
+    e_pct = _tracker_pcts(st.session_state.tracker_ensemble)
+    st.markdown("**Ensemble** (n={})".format(e_total))
+    if e_total > 0:
+        st.markdown("✓ Factual {:.1f}%".format(e_pct["factual"]))
+        st.progress(e_pct["factual"] / 100, text=None)
+        st.markdown("✗ Contradiction {:.1f}%".format(e_pct["contradiction"]))
+        st.progress(e_pct["contradiction"] / 100, text=None)
+        st.markdown("◇ Irrelevant {:.1f}%".format(e_pct["irrelevant"]))
+        st.progress(e_pct["irrelevant"] / 100, text=None)
+    else:
+        st.caption("No classifications yet")
+with tr_col2:
+    l_total = sum(st.session_state.tracker_llm.values())
+    l_pct = _tracker_pcts(st.session_state.tracker_llm)
+    st.markdown("**LLM-as-Judge** (n={})".format(l_total))
+    if l_total > 0:
+        st.markdown("✓ Factual {:.1f}%".format(l_pct["factual"]))
+        st.progress(l_pct["factual"] / 100, text=None)
+        st.markdown("✗ Contradiction {:.1f}%".format(l_pct["contradiction"]))
+        st.progress(l_pct["contradiction"] / 100, text=None)
+        st.markdown("◇ Irrelevant {:.1f}%".format(l_pct["irrelevant"]))
+        st.progress(l_pct["irrelevant"] / 100, text=None)
+    else:
+        st.caption("No classifications yet")
 
 st.markdown("---")
 st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
