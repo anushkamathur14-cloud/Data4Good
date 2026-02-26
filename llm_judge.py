@@ -58,34 +58,45 @@ def judge(
     context: str,
     answer: str,
     api_key: str,
-    model: str = "gpt-4o-mini",
+    provider: str = "openai",
+    model: Optional[str] = None,
 ) -> Tuple[str, Optional[dict]]:
     """
     Classify (question, context, answer) as factual / contradiction / irrelevant.
     Returns (predicted_label, proba_dict).
-    For LLM Judge, proba is None (no probabilities).
+    provider: "openai" or "gemini"
     """
-    from openai import OpenAI
+    prompt = make_judge_prompt(question, context, answer)
+    full_prompt = f"{JUDGE_SYSTEM}\n\n{prompt}"
 
-    client = OpenAI(api_key=api_key)
-    resp = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": JUDGE_SYSTEM},
-            {"role": "user", "content": make_judge_prompt(question, context, answer)},
-        ],
-        max_tokens=20,
-        stream=False,
-    )
-    content = resp.choices[0].message.content.strip().lower()
+    if provider == "gemini":
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise ImportError("pip install google-generativeai for Gemini support")
+        genai.configure(api_key=api_key)
+        m = genai.GenerativeModel(model or "gemini-1.5-flash")
+        resp = m.generate_content(
+            full_prompt,
+            generation_config={"temperature": 0, "max_output_tokens": 20},
+        )
+        content = (resp.text or "").strip().lower()
+    else:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        resp = client.chat.completions.create(
+            model=model or "gpt-4o-mini",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": JUDGE_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=20,
+            stream=False,
+        )
+        content = resp.choices[0].message.content.strip().lower()
 
-    # Normalize to valid label
     for label in LABELS:
         if label in content:
-            pred = label
-            break
-    else:
-        pred = "factual"  # fallback
-
-    return pred, None
+            return label, None
+    return "factual", None

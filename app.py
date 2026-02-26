@@ -104,16 +104,23 @@ def load_model():
         pipeline = train_model(train_df, sample_size=5000)
     return pipeline
 
-def generate_answer_with_llm(question: str, context: str, api_key: Optional[str] = None) -> Optional[str]:
-    """Use an LLM to generate an answer given question and context."""
-    key = api_key or st.session_state.get("openai_api_key", "") or os.environ.get("OPENAI_API_KEY") or (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "")
-    if not key:
+def generate_answer_with_llm(question: str, context: str) -> Optional[str]:
+    """Use an LLM (OpenAI or Gemini) to generate an answer given question and context."""
+    provider, api_key, model = _get_llm_config()
+    if not api_key:
         return None
+    prompt = f"Answer the question using only the provided context. Be concise. If the context doesn't contain the answer, say so briefly.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
     try:
+        if provider == "gemini":
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            m = genai.GenerativeModel(model)
+            resp = m.generate_content(prompt, generation_config={"max_output_tokens": 256})
+            return (resp.text or "").strip()
         from openai import OpenAI
-        client = OpenAI(api_key=key)
+        client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": "Answer the question using only the provided context. Be concise. If the context doesn't contain the answer, say so briefly."},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"}
@@ -147,27 +154,48 @@ def _show_friendly_error(e: Exception) -> None:
         st.error(f"Error: {e}")
 
 
-def _get_api_key() -> str:
-    return (
+def _get_llm_config() -> tuple[str, str, str]:
+    """Return (provider, api_key, model_name). Prefer OpenAI if both keys present."""
+    o_key = (
         st.session_state.get("openai_api_key", "")
         or os.environ.get("OPENAI_API_KEY", "")
         or (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "")
     )
+    g_key = (
+        st.session_state.get("gemini_api_key", "")
+        or os.environ.get("GEMINI_API_KEY", "")
+        or (st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else "")
+    )
+    if o_key:
+        return "openai", o_key, "gpt-4o-mini"
+    if g_key:
+        return "gemini", g_key, "gemini-1.5-flash"
+    return "", "", ""
 
 
 def _classify(question: str, context: str, answer: str, classifier: str, pipeline):
     """Dispatch to Ensemble or LLM-as-Judge."""
     if "LLM-as-Judge" in classifier:
-        api_key = _get_api_key()
+        provider, api_key, model = _get_llm_config()
         if not api_key:
-            raise ValueError("API key required for LLM-as-Judge. Enter it in the expander above.")
-        return llm_judge_classify(question, context, answer, api_key)
+            raise ValueError("API key required for LLM-as-Judge. Add OpenAI or Gemini key in the expander above.")
+        return llm_judge_classify(question, context, answer, api_key=api_key, provider=provider, model=model)
     return predict(pipeline, question, context, answer)
 
+
+def _model_note(classifier: str) -> str:
+    """Return a short note describing which model backs the classifier."""
+    if "LLM-as-Judge" in classifier:
+        _, _, model = _get_llm_config()
+        if model and "gemini" in model.lower():
+            return "gemini-1.5-flash (Gemini)"
+        return "gpt-4o-mini (OpenAI)"
+    return "Ensemble (RF, XGBoost, Logistic Regression)"
 
 def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: str = "Classification"):
     st.markdown("---")
     st.subheader(title)
+    st.caption(f"Model: {_model_note(classifier)}")
     pred_lower = pred.lower()
     if "factual" in pred_lower:
         st.markdown(f'**Result:** <span class="pred-factual">✓ {pred}</span>', unsafe_allow_html=True)
@@ -198,20 +226,27 @@ def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: 
 st.subheader("Try it yourself")
 st.markdown("1) Load a sample, or enter Question & Context. 2) Get an answer (generate with LLM or enter manually). 3) Capture it, then classify.")
 
-with st.expander("🔑 OpenAI API key (for LLM features)", expanded=False):
-    st.caption("Optional. Your key is stored only in this session and never sent anywhere except OpenAI. [Get a key](https://platform.openai.com/api-keys)")
-    user_key = st.text_input(
-        "OpenAI API key",
-        type="password",
-        placeholder="sk-...",
-        key="openai_api_key_input",
-        label_visibility="collapsed"
-    )
-    if user_key:
-        st.session_state.openai_api_key = user_key.strip()
-        st.success("Key saved for this session.")
-    else:
-        st.session_state.openai_api_key = ""
+with st.expander("🔑 API keys (for LLM features)", expanded=False):
+    st.caption("Optional. Add OpenAI and/or Gemini. Keys are session-only. [OpenAI](https://platform.openai.com/api-keys) | [Gemini](https://aistudio.google.com/apikey)")
+    o_col, g_col = st.columns(2)
+    with o_col:
+        o_key = st.text_input(
+            "OpenAI API key",
+            type="password",
+            placeholder="sk-...",
+            key="openai_api_key_input",
+            label_visibility="visible"
+        )
+        st.session_state.openai_api_key = (o_key or "").strip()
+    with g_col:
+        g_key = st.text_input(
+            "Gemini API key",
+            type="password",
+            placeholder="AIza...",
+            key="gemini_api_key_input",
+            label_visibility="visible"
+        )
+        st.session_state.gemini_api_key = (g_key or "").strip()
 
 if "preset" not in st.session_state:
     st.session_state.preset = {"question": "", "context": "", "answer": ""}
