@@ -97,7 +97,7 @@ def generate_answer_with_llm(question: str, context: str, api_key: Optional[str]
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        st.error(f"LLM error: {e}")
+        _show_friendly_error(e)
         return None
 
 @st.cache_data
@@ -108,6 +108,19 @@ def load_preset_examples(n: int = 200):
     df = pd.DataFrame(data)
     df.columns = [c.lower() for c in df.columns]
     return df.sample(n=min(n, len(df)), random_state=42).to_dict("records")
+
+def _show_friendly_error(e: Exception) -> None:
+    """Show a user-friendly error message instead of raw API/JSON output."""
+    err = str(e).lower()
+    if "401" in err or "invalid_api_key" in err or "incorrect api key" in err:
+        st.error("Invalid OpenAI API key. Please check your key in the expander above and ensure it's correct. [Get a key](https://platform.openai.com/account/api-keys)")
+    elif "429" in err or "rate limit" in err:
+        st.error("Rate limit exceeded. Please wait a moment and try again.")
+    elif "api" in err and ("key" in err or "auth" in err):
+        st.error("API key issue. Please verify your OpenAI API key in the expander above.")
+    else:
+        st.error(f"Error: {e}")
+
 
 def _get_api_key() -> str:
     return (
@@ -215,7 +228,7 @@ with st.form("prediction_form"):
             "Answer (enter manually if not using LLM)",
             value=st.session_state.preset.get("answer", ""),
             placeholder="e.g., Paris is the capital of France.",
-            height=120
+            height=200
         )
     else:
         answer = None
@@ -239,7 +252,7 @@ if submitted:
             except ValueError as e:
                 st.warning(str(e))
             except Exception as e:
-                st.error(f"Classification error: {e}")
+                _show_friendly_error(e)
     else:
         if not answer:
             st.warning("Please enter an answer.")
@@ -251,7 +264,7 @@ if submitted:
             except ValueError as e:
                 st.warning(str(e))
             except Exception as e:
-                st.error(f"Classification error: {e}")
+                _show_friendly_error(e)
 
 st.markdown("---")
 st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
