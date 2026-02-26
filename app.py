@@ -14,7 +14,7 @@ from model_pipeline import train_model, predict, load_pipeline
 from llm_judge import judge as llm_judge_classify
 
 st.set_page_config(
-    page_title="Factuality Detection Demo",
+    page_title="Live Demo on LLM-based Factuality",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -33,8 +33,64 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📚 Factuality Detection Demo")
+st.title("📚 Live Demo on LLM-based Factuality")
 st.markdown("**Classifying AI-Generated Educational Content** — *Data4Good Competition | The White Hatters*")
+
+# Session tracker for Ensemble & LLM-as-Judge
+if "tracker_ensemble" not in st.session_state:
+    st.session_state.tracker_ensemble = {"factual": 0, "contradiction": 0, "irrelevant": 0}
+if "tracker_llm" not in st.session_state:
+    st.session_state.tracker_llm = {"factual": 0, "contradiction": 0, "irrelevant": 0}
+
+def _track_result(label: str, classifier: str) -> None:
+    key = label.lower()
+    if "factual" in key:
+        key = "factual"
+    elif "contradiction" in key:
+        key = "contradiction"
+    else:
+        key = "irrelevant"
+    if "LLM-as-Judge" in classifier:
+        st.session_state.tracker_llm[key] += 1
+    else:
+        st.session_state.tracker_ensemble[key] += 1
+
+def _tracker_pcts(tracker: dict) -> dict:
+    total = sum(tracker.values())
+    if total == 0:
+        return {"factual": 0, "contradiction": 0, "irrelevant": 0}
+    return {k: round(100 * v / total, 1) for k, v in tracker.items()}
+
+# Display tracker
+st.markdown("**Session tracker** — *% by classifier*")
+tr_col1, tr_col2 = st.columns(2)
+with tr_col1:
+    e_total = sum(st.session_state.tracker_ensemble.values())
+    e_pct = _tracker_pcts(st.session_state.tracker_ensemble)
+    st.markdown("**Ensemble** (n={})".format(e_total))
+    if e_total > 0:
+        st.markdown("✓ Factual {:.1f}%".format(e_pct["factual"]))
+        st.progress(e_pct["factual"] / 100, text=None)
+        st.markdown("✗ Contradiction {:.1f}%".format(e_pct["contradiction"]))
+        st.progress(e_pct["contradiction"] / 100, text=None)
+        st.markdown("◇ Irrelevant {:.1f}%".format(e_pct["irrelevant"]))
+        st.progress(e_pct["irrelevant"] / 100, text=None)
+    else:
+        st.caption("No classifications yet")
+with tr_col2:
+    l_total = sum(st.session_state.tracker_llm.values())
+    l_pct = _tracker_pcts(st.session_state.tracker_llm)
+    st.markdown("**LLM-as-Judge** (n={})".format(l_total))
+    if l_total > 0:
+        st.markdown("✓ Factual {:.1f}%".format(l_pct["factual"]))
+        st.progress(l_pct["factual"] / 100, text=None)
+        st.markdown("✗ Contradiction {:.1f}%".format(l_pct["contradiction"]))
+        st.progress(l_pct["contradiction"] / 100, text=None)
+        st.markdown("◇ Irrelevant {:.1f}%".format(l_pct["irrelevant"]))
+        st.progress(l_pct["irrelevant"] / 100, text=None)
+    else:
+        st.caption("No classifications yet")
+st.markdown("---")
 
 # Overview of the LLM Judge / Ensemble Model
 st.markdown("### How it works")
@@ -140,7 +196,7 @@ def _classify(question: str, context: str, answer: str, classifier: str, pipelin
     return predict(pipeline, question, context, answer)
 
 
-def _show_result(pred: str, proba: Optional[dict]):
+def _show_result(pred: str, proba: Optional[dict], classifier: str = ""):
     st.markdown("---")
     st.subheader("Classification")
     pred_lower = pred.lower()
@@ -150,12 +206,24 @@ def _show_result(pred: str, proba: Optional[dict]):
         st.markdown(f'**Result:** <span class="pred-contradiction">✗ {pred}</span>', unsafe_allow_html=True)
     else:
         st.markdown(f'**Result:** <span class="pred-irrelevant">◇ {pred}</span>', unsafe_allow_html=True)
-    if proba:
-        st.markdown("**Confidence:**")
-        for label, p in proba.items():
-            pct = p * 100
-            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-            st.markdown(f"  {label}: {bar} {pct:.1f}%")
+
+    res_col1, res_col2 = st.columns([1, 1])
+    with res_col1:
+        if proba:
+            st.markdown("**Confidence**")
+            for label, p in proba.items():
+                pct = p * 100
+                bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+                st.markdown(f"  {label}: {bar} {pct:.1f}%")
+    with res_col2:
+        if proba:
+            best_label = max(proba, key=proba.get)
+            best_pct = proba[best_label] * 100
+            st.markdown("**Note**")
+            st.info(f"Most likely **{best_label}** {best_pct:.1f}% (based on highest percentile)")
+        else:
+            st.markdown("**Note**")
+            st.info(f"Classification: **{pred}** (LLM single-label)")
 
 try:
     pipeline = load_model()
@@ -248,7 +316,8 @@ if submitted:
             try:
                 with st.spinner("Classifying..."):
                     pred, proba = _classify(question, context, answer, classifier, pipeline)
-                _show_result(pred, proba)
+                _track_result(pred, classifier)
+                _show_result(pred, proba, classifier)
             except ValueError as e:
                 st.warning(str(e))
             except Exception as e:
@@ -260,7 +329,8 @@ if submitted:
             try:
                 with st.spinner("Classifying..."):
                     pred, proba = _classify(question, context, answer, classifier, pipeline)
-                _show_result(pred, proba)
+                _track_result(pred, classifier)
+                _show_result(pred, proba, classifier)
             except ValueError as e:
                 st.warning(str(e))
             except Exception as e:
