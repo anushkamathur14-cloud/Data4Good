@@ -36,6 +36,8 @@ st.markdown("""
 st.title("📚 Live Demo on LLM-based Factuality")
 st.markdown("**Classifying AI-Generated Educational Content** — *Data4Good Competition | The White Hatters*")
 
+tab_demo, tab_about = st.tabs(["Try the Demo", "About"])
+
 # Session tracker for Ensemble & LLM-as-Judge
 if "tracker_ensemble" not in st.session_state:
     st.session_state.tracker_ensemble = {"factual": 0, "contradiction": 0, "irrelevant": 0}
@@ -61,9 +63,10 @@ def _tracker_pcts(tracker: dict) -> dict:
         return {"factual": 0, "contradiction": 0, "irrelevant": 0}
     return {k: round(100 * v / total, 1) for k, v in tracker.items()}
 
-# Overview of the LLM Judge / Ensemble Model
-st.markdown("### How it works")
-st.markdown("""
+with tab_demo:
+    # Overview of the LLM Judge / Ensemble Model
+    st.markdown("### How it works")
+    st.markdown("""
 <div class="overview-box">
 <style>
 .flowchart { font-family: system-ui, -apple-system, sans-serif; font-size: 1.05rem; }
@@ -85,8 +88,8 @@ st.markdown("""
 <div class="flow-step"><span class="flow-arrow">↓</span> <span class="flow-out flow-factual">✓ Factual</span> <span class="flow-out flow-contra">✗ Contradiction</span> <span class="flow-out flow-irrel">◇ Irrelevant</span></div>
 </div>
 </div>
-""", unsafe_allow_html=True)
-st.markdown("---")
+    """, unsafe_allow_html=True)
+    st.markdown("---")
 
 # Load model: use pre-trained file if present, else train (cached)
 MODEL_PATH = "model_pipeline.joblib"
@@ -222,218 +225,270 @@ def _show_result(pred: str, proba: Optional[dict], classifier: str = "", title: 
             st.markdown("**Note**")
             st.info(f"Classification: **{pred}** (LLM single-label)")
 
-# Demo inputs
-st.subheader("Try it yourself")
-st.markdown("1) Load a sample, or enter Question & Context. 2) Get an answer (generate with LLM or enter manually). 3) Capture it, then classify.")
+with tab_demo:
+    # Demo inputs
+    st.subheader("Try it yourself")
+    st.markdown("1) Load a sample, or enter Question & Context. 2) Get an answer (generate with LLM or enter manually). 3) Capture it, then classify.")
 
-with st.expander("🔑 API keys (for LLM features)", expanded=False):
-    st.caption("Optional. Add OpenAI and/or Gemini. Keys are session-only. [OpenAI](https://platform.openai.com/api-keys) | [Gemini](https://aistudio.google.com/apikey)")
-    o_col, g_col = st.columns(2)
-    with o_col:
-        o_key = st.text_input(
-            "OpenAI API key",
-            type="password",
-            placeholder="sk-...",
-            key="openai_api_key_input",
-            label_visibility="visible"
+    with st.expander("🔑 API keys (for LLM features)", expanded=False):
+        st.caption("Optional. Add OpenAI and/or Gemini. Keys are session-only. [OpenAI](https://platform.openai.com/api-keys) | [Gemini](https://aistudio.google.com/apikey)")
+        o_col, g_col = st.columns(2)
+        with o_col:
+            o_key = st.text_input(
+                "OpenAI API key",
+                type="password",
+                placeholder="sk-...",
+                key="openai_api_key_input",
+                label_visibility="visible"
+            )
+            st.session_state.openai_api_key = (o_key or "").strip()
+        with g_col:
+            g_key = st.text_input(
+                "Gemini API key",
+                type="password",
+                placeholder="AIza...",
+                key="gemini_api_key_input",
+                label_visibility="visible"
+            )
+            st.session_state.gemini_api_key = (g_key or "").strip()
+
+    if "preset" not in st.session_state:
+        st.session_state.preset = {"question": "", "context": "", "answer": ""}
+
+    preset_examples = load_preset_examples()
+    if st.button("📋 Load sample"):
+        ex = random.choice(preset_examples)
+        st.session_state.preset = {
+            "question": ex.get("question", ""),
+            "context": ex.get("context", ""),
+            "answer": ex.get("answer", ""),
+        }
+        st.session_state.generated_answer = ex.get("answer", "")
+        st.session_state.generated_q = ex.get("question", "")
+        st.session_state.generated_c = ex.get("context", "")
+        st.session_state.just_loaded_sample = True
+        st.rerun()
+
+    with st.form("prediction_form"):
+        col_q, col_c = st.columns(2)
+        with col_q:
+            question = st.text_area(
+                "Question",
+                value=st.session_state.preset["question"],
+                placeholder="e.g., What is the capital of France?",
+                height=280,
+                help="The question to evaluate."
+            )
+        with col_c:
+            context = st.text_area(
+                "Context (reference)",
+                value=st.session_state.preset["context"],
+                placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
+                height=280,
+                help="Reference material the answer should be based on."
+            )
+        st.markdown("**Answer** — *generate with LLM or enter manually*")
+        manual_answer = st.text_area(
+            "Manual answer",
+            value="",
+            height=120,
+            placeholder="Type your answer here, then click Capture answer...",
+            key="manual_answer_input",
+            label_visibility="collapsed",
         )
-        st.session_state.openai_api_key = (o_key or "").strip()
-    with g_col:
-        g_key = st.text_input(
-            "Gemini API key",
-            type="password",
-            placeholder="AIza...",
-            key="gemini_api_key_input",
-            label_visibility="visible"
-        )
-        st.session_state.gemini_api_key = (g_key or "").strip()
+        btn_gen, btn_capture = st.columns(2)
+        with btn_gen:
+            submitted_gen = st.form_submit_button("▶ Generate with LLM")
+        with btn_capture:
+            submitted_manual = st.form_submit_button("✓ Capture answer (use manual)")
 
-if "preset" not in st.session_state:
-    st.session_state.preset = {"question": "", "context": "", "answer": ""}
-
-preset_examples = load_preset_examples()
-if st.button("📋 Load sample"):
-    ex = random.choice(preset_examples)
-    st.session_state.preset = {
-        "question": ex.get("question", ""),
-        "context": ex.get("context", ""),
-        "answer": ex.get("answer", ""),
-    }
-    st.session_state.generated_answer = ex.get("answer", "")
-    st.session_state.generated_q = ex.get("question", "")
-    st.session_state.generated_c = ex.get("context", "")
-    st.session_state.just_loaded_sample = True
-    st.rerun()
-
-with st.form("prediction_form"):
-    col_q, col_c = st.columns(2)
-    with col_q:
-        question = st.text_area(
-            "Question",
-            value=st.session_state.preset["question"],
-            placeholder="e.g., What is the capital of France?",
-            height=280,
-            help="The question to evaluate."
-        )
-    with col_c:
-        context = st.text_area(
-            "Context (reference)",
-            value=st.session_state.preset["context"],
-            placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
-            height=280,
-            help="Reference material the answer should be based on."
-        )
-    st.markdown("**Answer** — *generate with LLM or enter manually*")
-    manual_answer = st.text_area(
-        "Manual answer",
-        value="",
-        height=120,
-        placeholder="Type your answer here, then click Capture answer...",
-        key="manual_answer_input",
-        label_visibility="collapsed",
-    )
-    btn_gen, btn_capture = st.columns(2)
-    with btn_gen:
-        submitted_gen = st.form_submit_button("▶ Generate with LLM")
-    with btn_capture:
-        submitted_manual = st.form_submit_button("✓ Capture answer (use manual)")
-
-if submitted_gen:
-    if not (question and context):
-        st.warning("Please fill in Question and Context.")
-    else:
-        with st.spinner("Generating answer with LLM..."):
-            answer = generate_answer_with_llm(question, context)
-        if answer is None:
-            st.warning("Enter your OpenAI API key in the expander above to generate an answer.")
+    if submitted_gen:
+        if not (question and context):
+            st.warning("Please fill in Question and Context.")
         else:
-            st.session_state.generated_answer = answer
+            with st.spinner("Generating answer with LLM..."):
+                answer = generate_answer_with_llm(question, context)
+            if answer is None:
+                st.warning("Enter your OpenAI API key in the expander above to generate an answer.")
+            else:
+                st.session_state.generated_answer = answer
+                st.session_state.generated_q = question
+                st.session_state.generated_c = context
+                st.success("✓ **New answer generated** and ready for classification.")
+
+    if submitted_manual:
+        if not (question and context):
+            st.warning("Please fill in Question and Context first.")
+        elif not manual_answer.strip():
+            st.warning("Enter an answer manually, or generate with LLM.")
+        else:
+            st.session_state.generated_answer = manual_answer.strip()
             st.session_state.generated_q = question
             st.session_state.generated_c = context
-            st.success("✓ **New answer generated** and ready for classification.")
+            st.session_state.just_loaded_sample = False
+            st.success("✓ **Answer captured** — ready for classification.")
 
-if submitted_manual:
-    if not (question and context):
-        st.warning("Please fill in Question and Context first.")
-    elif not manual_answer.strip():
-        st.warning("Enter an answer manually, or generate with LLM.")
-    else:
-        st.session_state.generated_answer = manual_answer.strip()
-        st.session_state.generated_q = question
-        st.session_state.generated_c = context
+    if st.session_state.get("just_loaded_sample"):
+        st.success("✓ **Sample loaded** — question, context, and answer ready.")
         st.session_state.just_loaded_sample = False
-        st.success("✓ **Answer captured** — ready for classification.")
-
-if st.session_state.get("just_loaded_sample"):
-    st.success("✓ **Sample loaded** — question, context, and answer ready.")
-    st.session_state.just_loaded_sample = False
-if "generated_answer" in st.session_state and st.session_state.generated_answer:
-    st.markdown("**Answer** — *you can edit before classifying*")
-    answer_edited = st.text_area(
-        "Answer",
-        value=st.session_state.generated_answer,
-        height=150,
-        key="answer_edit",
-        label_visibility="collapsed",
-    )
-    st.session_state.generated_answer = answer_edited  # keep in sync
-    st.caption(f"✓ **Answer captured** ({len(answer_edited)} chars) — ready for classification")
-    st.markdown("**Choose classifier** — *run both to verify they work*")
-    classifier = st.radio(
-        "Classifier",
-        ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
-        horizontal=True,
-        key="classifier_choice",
-        help="Run this answer through Ensemble or LLM-as-Judge.",
-    )
-    run_one = st.button("Classify with chosen model")
-    run_both = st.button("Run both classifiers (verify both work)")
-    if run_one or run_both:
-        try:
-            pipeline = load_model()
-        except FileNotFoundError:
-            st.error("Training data not found. Please ensure `data/train.json` exists.")
-        else:
-            q = st.session_state.generated_q
-            c = st.session_state.generated_c
-            a = answer_edited
-            if run_one:
-                try:
-                    with st.spinner("Classifying..."):
-                        pred, proba = _classify(q, c, a, classifier, pipeline)
-                    _track_result(pred, classifier)
-                    _show_result(pred, proba, classifier)
-                except ValueError as e:
-                    st.warning(str(e))
-                except Exception as e:
-                    _show_friendly_error(e)
-            elif run_both:
-                results = []
-                with st.spinner("Running both classifiers..."):
-                    for clf in ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"]:
-                        try:
-                            pred, proba = _classify(q, c, a, clf, pipeline)
-                            _track_result(pred, clf)
-                            results.append((clf, pred, proba, None))
-                        except ValueError as e:
-                            results.append((clf, None, None, str(e)))
-                        except Exception as e:
-                            err = str(e).lower()
-                            if "401" in err or "invalid_api_key" in err or "incorrect api key" in err:
-                                results.append((clf, None, None, "Invalid API key. Add your OpenAI key in the expander above."))
-                            else:
+    if "generated_answer" in st.session_state and st.session_state.generated_answer:
+        st.markdown("**Answer** — *you can edit before classifying*")
+        answer_edited = st.text_area(
+            "Answer",
+            value=st.session_state.generated_answer,
+            height=150,
+            key="answer_edit",
+            label_visibility="collapsed",
+        )
+        st.session_state.generated_answer = answer_edited  # keep in sync
+        st.caption(f"✓ **Answer captured** ({len(answer_edited)} chars) — ready for classification")
+        st.markdown("**Choose classifier** — *run both to verify they work*")
+        classifier = st.radio(
+            "Classifier",
+            ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"],
+            horizontal=True,
+            key="classifier_choice",
+            help="Run this answer through Ensemble or LLM-as-Judge.",
+        )
+        run_one = st.button("Classify with chosen model")
+        run_both = st.button("Run both classifiers (verify both work)")
+        if run_one or run_both:
+            try:
+                pipeline = load_model()
+            except FileNotFoundError:
+                st.error("Training data not found. Please ensure `data/train.json` exists.")
+            else:
+                q = st.session_state.generated_q
+                c = st.session_state.generated_c
+                a = answer_edited
+                if run_one:
+                    try:
+                        with st.spinner("Classifying..."):
+                            pred, proba = _classify(q, c, a, classifier, pipeline)
+                        _track_result(pred, classifier)
+                        _show_result(pred, proba, classifier)
+                    except ValueError as e:
+                        st.warning(str(e))
+                    except Exception as e:
+                        _show_friendly_error(e)
+                elif run_both:
+                    results = []
+                    with st.spinner("Running both classifiers..."):
+                        for clf in ["Ensemble (local ML)", "LLM-as-Judge (OpenAI)"]:
+                            try:
+                                pred, proba = _classify(q, c, a, clf, pipeline)
+                                _track_result(pred, clf)
+                                results.append((clf, pred, proba, None))
+                            except ValueError as e:
                                 results.append((clf, None, None, str(e)))
-                ok_count = sum(1 for r in results if r[1] is not None)
-                if ok_count == 2:
-                    st.success("✓ **Both models ran** — Ensemble and LLM-as-Judge classified successfully.")
-                    preview = (a[:80] + "…") if len(a) > 80 else a
-                    st.caption(f"Both classifiers used this answer ({len(a)} chars):")
-                    st.code(preview, language=None)
-                elif ok_count == 1:
-                    st.warning("One model ran; the other had an error. See results below.")
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    clf, pred, proba, err = results[0]
-                    if err:
-                        st.warning(f"**{clf}:** {err}")
-                    elif pred is not None:
-                        _show_result(pred, proba, clf, title=clf)
-                with bc2:
-                    clf, pred, proba, err = results[1]
-                    if err:
-                        st.warning(f"**{clf}:** {err}")
-                    elif pred is not None:
-                        _show_result(pred, proba, clf, title=clf)
+                            except Exception as e:
+                                err = str(e).lower()
+                                if "401" in err or "invalid_api_key" in err or "incorrect api key" in err:
+                                    results.append((clf, None, None, "Invalid API key. Add your OpenAI key in the expander above."))
+                                else:
+                                    results.append((clf, None, None, str(e)))
+                    ok_count = sum(1 for r in results if r[1] is not None)
+                    if ok_count == 2:
+                        st.success("✓ **Both models ran** — Ensemble and LLM-as-Judge classified successfully.")
+                        preview = (a[:80] + "…") if len(a) > 80 else a
+                        st.caption(f"Both classifiers used this answer ({len(a)} chars):")
+                        st.code(preview, language=None)
+                    elif ok_count == 1:
+                        st.warning("One model ran; the other had an error. See results below.")
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        clf, pred, proba, err = results[0]
+                        if err:
+                            st.warning(f"**{clf}:** {err}")
+                        elif pred is not None:
+                            _show_result(pred, proba, clf, title=clf)
+                    with bc2:
+                        clf, pred, proba, err = results[1]
+                        if err:
+                            st.warning(f"**{clf}:** {err}")
+                        elif pred is not None:
+                            _show_result(pred, proba, clf, title=clf)
 
-st.markdown("---")
-st.markdown("**Session tracker** — *% by classifier*")
-tr_col1, tr_col2 = st.columns(2)
-with tr_col1:
-    e_total = sum(st.session_state.tracker_ensemble.values())
-    e_pct = _tracker_pcts(st.session_state.tracker_ensemble)
-    st.markdown("**Ensemble** (n={})".format(e_total))
-    if e_total > 0:
-        st.markdown("✓ Factual {:.1f}%".format(e_pct["factual"]))
-        st.progress(e_pct["factual"] / 100, text=None)
-        st.markdown("✗ Contradiction {:.1f}%".format(e_pct["contradiction"]))
-        st.progress(e_pct["contradiction"] / 100, text=None)
-        st.markdown("◇ Irrelevant {:.1f}%".format(e_pct["irrelevant"]))
-        st.progress(e_pct["irrelevant"] / 100, text=None)
-    else:
-        st.caption("No classifications yet")
-with tr_col2:
-    l_total = sum(st.session_state.tracker_llm.values())
-    l_pct = _tracker_pcts(st.session_state.tracker_llm)
-    st.markdown("**LLM-as-Judge** (n={})".format(l_total))
-    if l_total > 0:
-        st.markdown("✓ Factual {:.1f}%".format(l_pct["factual"]))
-        st.progress(l_pct["factual"] / 100, text=None)
-        st.markdown("✗ Contradiction {:.1f}%".format(l_pct["contradiction"]))
-        st.progress(l_pct["contradiction"] / 100, text=None)
-        st.markdown("◇ Irrelevant {:.1f}%".format(l_pct["irrelevant"]))
-        st.progress(l_pct["irrelevant"] / 100, text=None)
-    else:
-        st.caption("No classifications yet")
+    st.markdown("---")
+    st.markdown("**Session tracker** — *% by classifier*")
+    tr_col1, tr_col2 = st.columns(2)
+    with tr_col1:
+        e_total = sum(st.session_state.tracker_ensemble.values())
+        e_pct = _tracker_pcts(st.session_state.tracker_ensemble)
+        st.markdown("**Ensemble** (n={})".format(e_total))
+        if e_total > 0:
+            st.markdown("✓ Factual {:.1f}%".format(e_pct["factual"]))
+            st.progress(e_pct["factual"] / 100, text=None)
+            st.markdown("✗ Contradiction {:.1f}%".format(e_pct["contradiction"]))
+            st.progress(e_pct["contradiction"] / 100, text=None)
+            st.markdown("◇ Irrelevant {:.1f}%".format(e_pct["irrelevant"]))
+            st.progress(e_pct["irrelevant"] / 100, text=None)
+        else:
+            st.caption("No classifications yet")
+    with tr_col2:
+        l_total = sum(st.session_state.tracker_llm.values())
+        l_pct = _tracker_pcts(st.session_state.tracker_llm)
+        st.markdown("**LLM-as-Judge** (n={})".format(l_total))
+        if l_total > 0:
+            st.markdown("✓ Factual {:.1f}%".format(l_pct["factual"]))
+            st.progress(l_pct["factual"] / 100, text=None)
+            st.markdown("✗ Contradiction {:.1f}%".format(l_pct["contradiction"]))
+            st.progress(l_pct["contradiction"] / 100, text=None)
+            st.markdown("◇ Irrelevant {:.1f}%".format(l_pct["irrelevant"]))
+            st.progress(l_pct["irrelevant"] / 100, text=None)
+        else:
+            st.caption("No classifications yet")
 
-st.markdown("---")
-st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
+    st.markdown("---")
+    st.caption("Built for the 4th Annual Data4Good Competition | UW Foster MSBA | The White Hatters")
+
+with tab_about:
+    st.markdown("## Augmenting Education with AI")
+    st.markdown("**Enhancing Reliability & Trust** — *Data4Good National Championship | The White Hatters | UW Foster MSBA*")
+    st.markdown("""
+    A **scalable, safety-first evaluation system** for resource-constrained learning environments. Up to **47%** of AI outputs contain hallucinations across models — this app helps detect them.
+    """)
+    st.markdown("### What it does")
+    st.markdown("""
+    Classifies Q&A triples into three mutually exclusive labels:
+    - **✓ Factual** — Deliver to the learner (supported by context or verifiable knowledge)
+    - **✗ Contradiction** — Block before delivery (primary safety risk)
+    - **◇ Irrelevant** — Flag for review or re-prompting (off-topic / non-sequitur)
+
+    **Input:** [Question] + [Context] + [Answer]. **Output:** A safety class for decision-oriented deployment.
+    """)
+    st.markdown("### Intended use cases")
+    st.markdown("""
+    | Stakeholder | Use Case |
+    |-------------|----------|
+    | **EdTech platforms** | Content generation, tutoring, scaling instruction |
+    | **Schools & institutions** | Primary instructional aid, grading, assessments |
+    | **Peer learning** | Collaborative knowledge building |
+    | **Administrators & policymakers** | Decision support, standardization |
+    | **Home schooling** | Lesson prep, doubt solving |
+    """)
+    st.markdown("### Tech stack")
+    st.markdown("""
+    | Component | Technology |
+    |-----------|------------|
+    | **Ensemble (local ML)** | scikit-learn (RF, XGBoost, LR), TF-IDF, length/overlap/semantic similarity features |
+    | **LLM-as-Judge** | OpenAI (gpt-4o-mini) or Google (Gemini 1.5 Flash), 2-step relevance-first reasoning |
+    | **App** | Streamlit, Python |
+    | **Training data** | 21,021 records (83% factual, 8.6% contradiction, 8.4% irrelevant) |
+    | **Validation** | Stratified K-Fold CV, Macro F1 primary metric |
+    """)
+    st.markdown("### Key innovations")
+    st.markdown("""
+    1. **Relevance-first gating** — Screen irrelevance *before* factual evaluation; prevents off-topic answers from contaminating contradiction detection
+    2. **System prompts as control layer** — Fixed evaluation contract for consistent, auditable, safety-aligned judgments
+    3. **Decision-oriented design** — When verification is unequal, error detection dominates accuracy optimization (high accuracy ≠ safe when harmful errors are rare)
+    4. **Dual paradigm** — Compare **Classical ML Ensemble** (91% F1 macro, interpretable) with **LLM-as-Judge** (94% F1 macro, in-context semantic evaluation)
+    5. **Cost-effective at scale** — ~$0.004–0.008 per classification; automated safety cheaper than undetected hallucination
+    """)
+    st.markdown("### Scope & constraints")
+    st.markdown("""
+    **In scope:** English text, short-form factual Q&A, batch verification, context-bounded evaluation  
+    **Out of scope:** Multimodal (image/audio/video), real-time/streaming, creative generation, autonomous content correction
+    """)
+    st.markdown("---")
+    st.caption("Aligned to INFORMS Analytics Framework. [Learn more](https://www.informs.org/Professional-Development/Professional-Development-Classes/INFORMS-Analytics-Framework)")
