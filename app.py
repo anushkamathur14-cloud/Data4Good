@@ -4,8 +4,11 @@ Data4Good Competition | The White Hatters
 
 Flow: User question → LLM generates answer → Ensemble classifies as Factual / Incorrect / Irrelevant
 """
-from dotenv import load_dotenv
-load_dotenv()  # load .env before any code uses OPENAI_API_KEY / GEMINI_API_KEY
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # load .env locally; on Streamlit Cloud use Secrets
+except ImportError:
+    pass  # python-dotenv optional on Cloud (secrets via st.secrets)
 
 import streamlit as st
 import json
