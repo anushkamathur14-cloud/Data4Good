@@ -4,6 +4,9 @@ Data4Good Competition | The White Hatters
 
 Flow: User question → LLM generates answer → Ensemble classifies as Factual / Incorrect / Irrelevant
 """
+from dotenv import load_dotenv
+load_dotenv()  # load .env before any code uses OPENAI_API_KEY / GEMINI_API_KEY
+
 import streamlit as st
 import json
 import os
@@ -43,6 +46,13 @@ if "tracker_ensemble" not in st.session_state:
     st.session_state.tracker_ensemble = {"factual": 0, "contradiction": 0, "irrelevant": 0}
 if "tracker_llm" not in st.session_state:
     st.session_state.tracker_llm = {"factual": 0, "contradiction": 0, "irrelevant": 0}
+# Limit shared key usage: 2× Generate with LLM, 2× LLM-as-Judge (then user must enter own key)
+if "llm_gen_uses" not in st.session_state:
+    st.session_state.llm_gen_uses = 0
+if "llm_judge_uses" not in st.session_state:
+    st.session_state.llm_judge_uses = 0
+LIMIT_GEN = 2
+LIMIT_JUDGE = 2
 
 def _track_result(label: str, classifier: str) -> None:
     key = label.lower()
@@ -109,9 +119,11 @@ def load_model():
 
 def generate_answer_with_llm(question: str, context: str) -> Optional[str]:
     """Use an LLM (OpenAI or Gemini) to generate an answer given question and context."""
-    provider, api_key, model = _get_llm_config()
+    provider, api_key, model, from_shared = _get_llm_config()
     if not api_key:
         return None
+    if from_shared and st.session_state.llm_gen_uses >= LIMIT_GEN:
+        return None  # limit reached; caller will prompt user to enter own key
     prompt = f"Answer the question using only the provided context. Be concise. If the context doesn't contain the answer, say so briefly.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
     try:
         if provider == "gemini":
@@ -119,7 +131,10 @@ def generate_answer_with_llm(question: str, context: str) -> Optional[str]:
             genai.configure(api_key=api_key)
             m = genai.GenerativeModel(model)
             resp = m.generate_content(prompt, generation_config={"max_output_tokens": 256})
-            return (resp.text or "").strip()
+            out = (resp.text or "").strip()
+            if from_shared:
+                st.session_state.llm_gen_uses = st.session_state.llm_gen_uses + 1
+            return out
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
@@ -130,7 +145,10 @@ def generate_answer_with_llm(question: str, context: str) -> Optional[str]:
             ],
             max_tokens=256
         )
-        return response.choices[0].message.content.strip()
+        out = response.choices[0].message.content.strip()
+        if from_shared:
+            st.session_state.llm_gen_uses = st.session_state.llm_gen_uses + 1
+        return out
     except Exception as e:
         _show_friendly_error(e)
         return None
@@ -157,39 +175,42 @@ def _show_friendly_error(e: Exception) -> None:
         st.error(f"Error: {e}")
 
 
-def _get_llm_config() -> tuple[str, str, str]:
-    """Return (provider, api_key, model_name). Prefer OpenAI if both keys present."""
-    o_key = (
-        st.session_state.get("openai_api_key", "")
-        or os.environ.get("OPENAI_API_KEY", "")
-        or (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "")
-    )
-    g_key = (
-        st.session_state.get("gemini_api_key", "")
-        or os.environ.get("GEMINI_API_KEY", "")
-        or (st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else "")
-    )
+def _get_llm_config() -> tuple[str, str, str, bool]:
+    """Return (provider, api_key, model_name, from_shared). from_shared=True if key from .env/secrets."""
+    o_session = (st.session_state.get("openai_api_key", "") or "").strip()
+    o_env = os.environ.get("OPENAI_API_KEY", "") or ""
+    o_secrets = (st.secrets.get("OPENAI_API_KEY", "") if hasattr(st, "secrets") else "") or ""
+    o_key = o_session or o_env or o_secrets
+    g_session = (st.session_state.get("gemini_api_key", "") or "").strip()
+    g_env = os.environ.get("GEMINI_API_KEY", "") or ""
+    g_secrets = (st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else "") or ""
+    g_key = g_session or g_env or g_secrets
     if o_key:
-        return "openai", o_key, "gpt-4o-mini"
+        return "openai", o_key, "gpt-4o-mini", not bool(o_session)
     if g_key:
-        return "gemini", g_key, "gemini-1.5-flash"
-    return "", "", ""
+        return "gemini", g_key, "gemini-1.5-flash", not bool(g_session)
+    return "", "", "", False
 
 
 def _classify(question: str, context: str, answer: str, classifier: str, pipeline):
     """Dispatch to Ensemble or LLM-as-Judge."""
     if "LLM-as-Judge" in classifier:
-        provider, api_key, model = _get_llm_config()
+        provider, api_key, model, from_shared = _get_llm_config()
         if not api_key:
             raise ValueError("API key required for LLM-as-Judge. Add OpenAI or Gemini key in the expander above.")
-        return llm_judge_classify(question, context, answer, api_key=api_key, provider=provider, model=model)
+        if from_shared and st.session_state.llm_judge_uses >= LIMIT_JUDGE:
+            raise ValueError(f"Limit reached ({LIMIT_JUDGE} free uses). Enter your own OpenAI or Gemini key in the expander above.")
+        pred, proba = llm_judge_classify(question, context, answer, api_key=api_key, provider=provider, model=model)
+        if from_shared:
+            st.session_state.llm_judge_uses = st.session_state.llm_judge_uses + 1
+        return pred, proba
     return predict(pipeline, question, context, answer)
 
 
 def _model_note(classifier: str) -> str:
     """Return a short note describing which model backs the classifier."""
     if "LLM-as-Judge" in classifier:
-        _, _, model = _get_llm_config()
+        _, _, model, _ = _get_llm_config()
         if model and "gemini" in model.lower():
             return "gemini-1.5-flash (Gemini)"
         return "gpt-4o-mini (OpenAI)"
@@ -229,9 +250,11 @@ with tab_demo:
     # Demo inputs
     st.subheader("Try it yourself")
     st.markdown("1) Load a sample, or enter Question & Context. 2) Get an answer (generate with LLM or enter manually). 3) Capture it, then classify.")
+    st.caption("**Note:** 2 free uses allowed (Generate with LLM + LLM-as-Judge). Add your own API key in the expander above for more.")
 
     with st.expander("🔑 API keys (for LLM features)", expanded=False):
-        st.caption("Optional. Add OpenAI and/or Gemini. Keys are session-only. [OpenAI](https://platform.openai.com/api-keys) | [Gemini](https://aistudio.google.com/apikey)")
+        st.caption("Optional. Add keys here, or use a **.env** file (copy `.env.example` → `.env`). Keys from .env are loaded automatically and never shown. [OpenAI](https://platform.openai.com/api-keys) | [Gemini](https://aistudio.google.com/apikey)")
+        st.info(f"**2 free uses allowed:** {LIMIT_GEN}× Generate with LLM and {LIMIT_JUDGE}× LLM-as-Judge per session. Then enter your own key above.")
         o_col, g_col = st.columns(2)
         with o_col:
             o_key = st.text_input(
@@ -263,29 +286,49 @@ with tab_demo:
             "context": ex.get("context", ""),
             "answer": ex.get("answer", ""),
         }
-        st.session_state.generated_answer = ex.get("answer", "")
-        st.session_state.generated_q = ex.get("question", "")
-        st.session_state.generated_c = ex.get("context", "")
+        # Only load Q & C; do not set generated_answer — user must Generate or Capture
+        if "generated_answer" in st.session_state:
+            del st.session_state["generated_answer"]
+        if "generated_q" in st.session_state:
+            del st.session_state["generated_q"]
+        if "generated_c" in st.session_state:
+            del st.session_state["generated_c"]
+        st.session_state["form_question"] = ex.get("question", "")
+        st.session_state["form_context"] = ex.get("context", "")
+        # Reset form widget state so form shows new Q/C (and Generate uses them)
+        st.session_state["question_input"] = ex.get("question", "")
+        st.session_state["context_input"] = ex.get("context", "")
+        if "answer_edit" in st.session_state:
+            del st.session_state["answer_edit"]
         st.session_state.just_loaded_sample = True
         st.rerun()
 
+    # Form fields use session state so Load sample + Generate uses new Q/C
+    if "form_question" not in st.session_state:
+        st.session_state["form_question"] = st.session_state.preset["question"]
+    if "form_context" not in st.session_state:
+        st.session_state["form_context"] = st.session_state.preset["context"]
+    form_question = st.session_state.get("form_question", st.session_state.preset["question"])
+    form_context = st.session_state.get("form_context", st.session_state.preset["context"])
     with st.form("prediction_form"):
         col_q, col_c = st.columns(2)
         with col_q:
             question = st.text_area(
                 "Question",
-                value=st.session_state.preset["question"],
+                value=form_question,
                 placeholder="e.g., What is the capital of France?",
                 height=280,
-                help="The question to evaluate."
+                help="The question to evaluate.",
+                key="question_input",
             )
         with col_c:
             context = st.text_area(
                 "Context (reference)",
-                value=st.session_state.preset["context"],
+                value=form_context,
                 placeholder="e.g., France is a country in Western Europe. Paris is its capital and largest city.",
                 height=280,
-                help="Reference material the answer should be based on."
+                help="Reference material the answer should be based on.",
+                key="context_input",
             )
         st.markdown("**Answer** — *generate with LLM or enter manually*")
         manual_answer = st.text_area(
@@ -309,11 +352,18 @@ with tab_demo:
             with st.spinner("Generating answer with LLM..."):
                 answer = generate_answer_with_llm(question, context)
             if answer is None:
-                st.warning("Enter your OpenAI API key in the expander above to generate an answer.")
+                provider, api_key, _, from_shared = _get_llm_config()
+                if from_shared and st.session_state.llm_gen_uses >= LIMIT_GEN:
+                    st.warning(f"**Limit reached** ({LIMIT_GEN} free uses). Enter your own OpenAI or Gemini key in the expander above for more.")
+                else:
+                    st.warning("Enter your OpenAI API key in the expander above to generate an answer.")
             else:
                 st.session_state.generated_answer = answer
                 st.session_state.generated_q = question
                 st.session_state.generated_c = context
+                st.session_state["form_question"] = question
+                st.session_state["form_context"] = context
+                st.session_state["answer_edit"] = answer  # sync so classifier uses this answer
                 st.success("✓ **New answer generated** and ready for classification.")
 
     if submitted_manual:
@@ -322,16 +372,24 @@ with tab_demo:
         elif not manual_answer.strip():
             st.warning("Enter an answer manually, or generate with LLM.")
         else:
-            st.session_state.generated_answer = manual_answer.strip()
+            captured = manual_answer.strip()
+            st.session_state.generated_answer = captured
             st.session_state.generated_q = question
             st.session_state.generated_c = context
+            st.session_state["form_question"] = question
+            st.session_state["form_context"] = context
             st.session_state.just_loaded_sample = False
+            st.session_state["just_captured_manual"] = True  # force answer area to show this, not stale LLM
             st.success("✓ **Answer captured** — ready for classification.")
 
     if st.session_state.get("just_loaded_sample"):
-        st.success("✓ **Sample loaded** — question, context, and answer ready.")
+        st.success("✓ **Sample loaded** — question and context ready. Generate an answer or enter one manually.")
         st.session_state.just_loaded_sample = False
     if "generated_answer" in st.session_state and st.session_state.generated_answer:
+        # After manual capture, force display to use generated_answer so classifier gets manual text
+        if st.session_state.get("just_captured_manual"):
+            st.session_state["answer_edit"] = st.session_state.generated_answer
+            st.session_state["just_captured_manual"] = False
         st.markdown("**Answer** — *you can edit before classifying*")
         answer_edited = st.text_area(
             "Answer",
@@ -340,7 +398,8 @@ with tab_demo:
             key="answer_edit",
             label_visibility="collapsed",
         )
-        st.session_state.generated_answer = answer_edited  # keep in sync
+        # Classifier uses this; keep session in sync (use widget value so edits are kept)
+        st.session_state.generated_answer = answer_edited
         st.caption(f"✓ **Answer captured** ({len(answer_edited)} chars) — ready for classification")
         st.markdown("**Choose classifier** — *run both to verify they work*")
         classifier = st.radio(
@@ -360,7 +419,7 @@ with tab_demo:
             else:
                 q = st.session_state.generated_q
                 c = st.session_state.generated_c
-                a = answer_edited
+                a = st.session_state.generated_answer  # use synced answer (manual or LLM) so classifier gets correct text
                 if run_one:
                     try:
                         with st.spinner("Classifying..."):

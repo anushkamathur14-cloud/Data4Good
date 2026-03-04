@@ -173,6 +173,16 @@ Or deploy to **[Streamlit Community Cloud](https://share.streamlit.io)** (free):
 3. Select your repo, set main file to `app.py`
 4. Add `requirements-streamlit.txt` as the requirements file (or use `requirements.txt`)
 
+**Deploy secrets (API keys) on Streamlit Cloud:**
+1. Open your app on [share.streamlit.io](https://share.streamlit.io)
+2. Click **⋮** (top right) → **Settings** → **Secrets**
+3. Paste your keys in TOML format (never commit this file):
+   ```toml
+   OPENAI_API_KEY = "sk-your-key-here"
+   # GEMINI_API_KEY = "your-gemini-key-here"
+   ```
+4. Save. The app will use these for the free tier (2× Generate, 2× LLM-as-Judge); users can add their own key in the app after that.
+
 ### Option 2: Binder (Run Notebook in Browser)
 
 Click the badge to launch the notebook in an interactive environment:
